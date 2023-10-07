@@ -1,52 +1,62 @@
 import json
 import random
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # To load environment variables from a .env file
 import os
-from requests import post, get
-import webbrowser
-from scipy.spatial.distance import cosine
-import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-from flask import Flask, request, redirect
-from flask_cors import CORS
-CLIENT_ID = os.environ.get('CLIENT_ID')
-CLIENT_SECRET = os.environ.get('CLIENT_SECRET')
-app = Flask(__name__)
-CORS(app)
-CORS(app, resources={r"/*": {"origins": "*"}})
+from requests import post, get  # For making HTTP requests
+import webbrowser  # To control the browser
+import numpy as np  # For numerical operations
+import tensorflow as tf  # Machine learning library
+from tensorflow import keras  # High-level neural networks API
+from flask import Flask, request, redirect  # Flask web framework
+from flask_cors import CORS  # Handling cross-origin resource sharing for Flask
+import base64
+import requests
+# Load environment variables from a specific .env file
 load_dotenv("/Users/anishnair/Spotify API - Emotiwave/.env")
-print("Current working directory:", os.getcwd())
+# Get client ID and secret for Spotify API from environment variables
 client_id = os.getenv("CLIENT_ID")
 client_secret = os.getenv("CLIENT_SECRET")
+
+# Constants for Spotify authorization and API endpoints
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 REDIRECT_URI = "http://localhost:5001/callback"
 SCOPE = "user-read-private user-read-email"
 SPOTIFY_API_BASE_URL = "https://api.spotify.com/v1"
+
+app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "*"}}) 
+
 @app.route("/")
 def index():
-    auth_url = f"https://accounts.spotify.com/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri={REDIRECT_URI}&scope=user-read-private%20user-read-email"
+    """Redirect user to Spotify for authentication."""
+    auth_url = f"{SPOTIFY_AUTH_URL}?client_id={client_id}&response_type=code&redirect_uri={REDIRECT_URI}&scope=user-read-private%20user-read-email"
     return redirect(auth_url)
-def get_auth_header(token):
-    return {"Authorization": "Bearer " + token}
+
 @app.route("/callback")
 def callback():
-    error = request.args.get('error')
-    code = request.args.get('code')
-    if error:
-        return "Error occurred: " + error
+    """Handle the redirect from Spotify authentication."""
+    code = request.args.get('code')  # Get the authorization code from the query string
+    if not code:
+        # If there's no code, return an error message
+        return "Error occurred: No authorization code returned"
+    # Set up Flask app
+    # 
+ # Set up CORS for all origins
+    
+    access_token, refresh_token = get_tokens_from_code(code)  # Extract access and refresh tokens
     token_data = {
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": REDIRECT_URI,
-        "client_id": CLIENT_ID,
-        "client_secret": CLIENT_SECRET
-    }
+        "client_id": client_id,
+        "client_secret": client_secret
+    } 
     response = post("https://accounts.spotify.com/api/token", data=token_data)
     token_json = response.json()
     access_token = token_json.get("access_token")
     refresh_token = token_json.get("refresh_token")
     return f"Access Token: {access_token} <br> Refresh Token: {refresh_token}"
+    return "Successfully authenticated with Spotify."
 
 if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0', port=5001)
@@ -64,21 +74,32 @@ def direct_user_to_auth():
 
 def get_tokens_from_code(code):
     token_url = "https://accounts.spotify.com/api/token"
-    token_data = {
-        "grant_type": "authorization_code",
-        "code": code,
-        "redirect_uri": REDIRECT_URI,
-        "client_id": client_id,
-        "client_secret": client_secret
+    headers = {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': 'Basic ' + base64.b64encode(f"{client_id}:{client_secret}".encode()).decode('utf-8')
     }
-    results = post(token_url, data=token_data)
-    json_result = results.json()
-    access_token = json_result.get("access_token")
-    refresh_token = json_result.get("refresh_token")
+    payload = {
+        'grant_type': 'authorization_code',
+        'code': code,
+        'redirect_uri': REDIRECT_URI
+    }
+    response = requests.post(token_url, headers=headers, data=payload)
+    
+    # Handle the response
+    if response.status_code == 200:
+        data = response.json()
+        return data['access_token'], data['refresh_token']
+    else:
+        # Error handling logic
+        raise Exception("Failed to obtain tokens.")
     if not access_token or not refresh_token:
         print("Error fetching tokens:", json_result.get("error_description", "Unknown error"))
         exit()
     return access_token, refresh_token
+
+def get_auth_header(token):
+    """Returns the authorization header dictionary required for Spotify's API."""
+    return {"Authorization": f"Bearer {token}"}
 
 def get_audio_features(track_id, token):
     headers = get_auth_header(token)
@@ -154,7 +175,7 @@ def fetch_spotify_recommendations(seed_artists=None, seed_genres=None, seed_trac
 keys_mapping = {
     'uplifting/happy': [1, 2, 4, 5, 7, 9, 11, 13, 15, 17, 19],
     'reflective/moody': [0, 3, 6, 8, 10, 12, 14, 16, 18]
-}
+} 
 valid_tonal_choices = ['uplifting/happy', 'reflective/moody']
 valid_tempo_choices = ['fast', 'mid-paced', 'slow']
 
@@ -189,15 +210,19 @@ if spotify_recommendations:
     print("Spotify Recommendations:")
     for i, track in enumerate(spotify_recommendations):
         print(f"{i+1}. {track['name']} - {', '.join([artist['name'] for artist in track['artists']])}")
+
 direct_user_to_auth()
+
 # Replace with your authorization code
 authorization_code = "BQAN4FYKUOAIU1SvlxcktoadYXENh93hrjECniGvgV0kb-ATq5XJq4XfLUrUWP_iHlvA-mbo9NGiqY-XyEUnXdlMgYptvIVfZTo1NH40kdT4Se5CBAqu8FjIbRCjhQlVZilgXbga9C2t6_IwZo-PFAEvmHNz5c5yc7bFeTFQCHoC-GRBQ0u5uUw731uRZH9nEA"
+
+# Get access_token using the provided authorization_code
+access_token, _ = get_tokens_from_code(authorization_code)
 
 # Specify a track ID
 track_id = "2MVQbDuhVs2muWFURtIdNb"
 
 audio_features = get_audio_features(track_id, access_token)
-
 track_info = get_track_info(track_id, access_token)
 
 # Fetch Spotify recommendations based on seed artists and genres
@@ -214,10 +239,6 @@ spotify_recommendations = fetch_spotify_recommendations(seed_artists, seed_genre
 print("Spotify Recommendations:")
 for index, track in enumerate(spotify_recommendations, 1):
     print(f"{index}. {track['name']} - {', '.join([artist['name'] for artist in track['artists']])}")
-def map_user_rating_to_metric(user_rating):
-    return user_rating * 1.44
-user_rating = float(input("Enter your emotion score (0-10): "))
-metric_score = map_user_rating_to_metric(user_rating)
 
 def adjust_spotify_parameters_based_on_metric(metric_score):
     base_value = min(0.0715 * metric_score, 1.0)
